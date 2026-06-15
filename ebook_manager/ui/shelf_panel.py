@@ -1,266 +1,18 @@
 from typing import Optional, List, Dict
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTreeView, QPushButton, QLabel,
-    QMenu, QInputDialog, QMessageBox, QColorDialog, QDialog,
-    QDialogButtonBox, QComboBox, QLineEdit, QFormLayout, QToolBar,
-    QSizePolicy, QAbstractItemView
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QMenu, QInputDialog, QMessageBox, QAbstractItemView
 )
-from PyQt6.QtCore import (
-    Qt, pyqtSignal, QMimeData, QByteArray, QModelIndex, QSize, QPoint
-)
-from PyQt6.QtGui import QAction, QIcon, QColor, QPainter, QBrush, QPen
-from PyQt6.QtCore import QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QByteArray, QModelIndex, QPoint, QTimer
+from PyQt6.QtGui import QAction, QColor
 
-from ..shelf_models import (
-    ShelfTree, SHELF_ROOT_ID, BOOK_MIME, SHELF_MIME, PATH_SEPARATOR
-)
+from ..shelf_models import ShelfTree, SHELF_ROOT_ID, BOOK_MIME, PATH_SEPARATOR
 from .shelf_tree_model import ShelfTreeModel
-
-
-SHELF_ICONS = [
-    "📁", "📂", "📚", "📖", "📕", "📗", "📘", "📙",
-    "🏠", "🏛️", "🔬", "💻", "📐", "🧠", "🎨", "🎵",
-    "⭐", "❤️", "🔥", "🌿", "🎯", "🎭", "📝", "🗂️",
-    "📰", "📜", "📓", "📔", "📒", "📃", "📄", "📰",
-]
-
-PRESET_COLORS = [
-    "", "#e74c3c", "#e67e22", "#f1c40f", "#2ecc71",
-    "#1abc9c", "#3498db", "#9b59b6", "#34495e", "#95a5a6"
-]
-
-
-class ShelfTreeView(QTreeView):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.setDragEnabled(True)
-        self.setAcceptDrops(True)
-        self.setDropIndicatorShown(True)
-        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.setEditTriggers(
-            QAbstractItemView.EditTrigger.EditKeyPressed
-            | QAbstractItemView.EditTrigger.SelectedClicked
-            | QAbstractItemView.EditTrigger.DoubleClicked
-        )
-        self.setUniformRowHeights(True)
-        self.setIndentation(20)
-        self.setAnimated(True)
-        self.setHeaderHidden(False)
-        self.setExpandsOnDoubleClick(True)
-        self.setAlternatingRowColors(False)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.setStyleSheet("""
-            QTreeView {
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                background: white;
-                outline: none;
-            }
-            QTreeView::item {
-                padding: 4px 6px;
-                border-radius: 3px;
-            }
-            QTreeView::item:hover {
-                background: #f0f7ff;
-            }
-            QTreeView::item:selected {
-                background: #4a9eff;
-                color: white;
-            }
-            QTreeView::item:selected:!active {
-                background: #4a9effcc;
-                color: white;
-            }
-            QTreeView::branch {
-                background: transparent;
-            }
-            QTreeView::branch:has-siblings:!adjoins-item {
-                border-image: none;
-            }
-        """)
-
-    def startDrag(self, supportedActions):
-        indexes = self.selectedIndexes()
-        valid_indexes = [idx for idx in indexes if idx.column() == 0]
-        if not valid_indexes:
-            return
-        model = self.model()
-        if hasattr(model, "mimeData"):
-            mime_data = model.mimeData(valid_indexes)
-            if mime_data:
-                drag = self._create_drag_object()
-                drag.setMimeData(mime_data)
-                drag.exec(Qt.DropAction.MoveAction)
-
-    def _create_drag_object(self):
-        from PyQt6.QtGui import QDrag
-        return QDrag(self)
-
-    def expandTo(self, shelf_id: str):
-        model = self.model()
-        if not hasattr(model, "tree"):
-            return
-        tree = model.tree
-        ancestors = tree.get_ancestors(shelf_id)
-        for anc in ancestors:
-            if anc.id != SHELF_ROOT_ID:
-                idx = model.find_index(anc.id)
-                if idx.isValid():
-                    self.expand(idx)
-
-    def saveExpandedState(self, model: ShelfTreeModel):
-        if not hasattr(model, "tree"):
-            return
-        tree = model.tree
-        for nid in tree.get_all_shelf_ids():
-            idx = model.find_index(nid)
-            if idx.isValid():
-                tree.set_expanded(nid, self.isExpanded(idx))
-
-    def restoreExpandedState(self, model: ShelfTreeModel):
-        if not hasattr(model, "tree"):
-            return
-        tree = model.tree
-        root = tree.get_node(SHELF_ROOT_ID)
-        if root and root.expanded:
-            self.expand(model.find_index(SHELF_ROOT_ID))
-        for nid in tree.get_all_shelf_ids():
-            node = tree.get_node(nid)
-            if node and node.expanded:
-                idx = model.find_index(nid)
-                if idx.isValid():
-                    self.expand(idx)
-
-
-class ShelfIconPickerDialog(QDialog):
-    def __init__(self, current_icon: str = "📁", parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("选择图标")
-        self.setMinimumSize(360, 320)
-        self._selected_icon = current_icon
-        layout = QVBoxLayout(self)
-        from PyQt6.QtWidgets import QGridLayout
-        grid = QGridLayout()
-        grid.setSpacing(4)
-        self._buttons = []
-        cols = 8
-        for i, icon in enumerate(SHELF_ICONS):
-            btn = QPushButton(icon)
-            btn.setCheckable(True)
-            btn.setFixedSize(40, 40)
-            btn.setStyleSheet("""
-                QPushButton {
-                    font-size: 20px;
-                    border: 2px solid transparent;
-                    border-radius: 6px;
-                    background: #fafafa;
-                }
-                QPushButton:hover {
-                    background: #e8f0fe;
-                }
-                QPushButton:checked {
-                    border-color: #4a9eff;
-                    background: #e8f0fe;
-                }
-            """)
-            if icon == current_icon:
-                btn.setChecked(True)
-            btn.clicked.connect(lambda checked, ic=icon: self._on_icon_selected(ic))
-            grid.addWidget(btn, i // cols, i % cols)
-            self._buttons.append((btn, icon))
-        layout.addLayout(grid)
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(self.accept)
-        btns.rejected.connect(self.reject)
-        layout.addWidget(btns)
-
-    def _on_icon_selected(self, icon: str):
-        self._selected_icon = icon
-        for btn, ic in self._buttons:
-            btn.setChecked(ic == icon)
-
-    def get_selected_icon(self) -> str:
-        return self._selected_icon
-
-
-class ShelfColorPickerDialog(QDialog):
-    def __init__(self, current_color: str = "", parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("选择颜色")
-        self.setMinimumSize(320, 180)
-        self._selected_color = current_color
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("预设颜色:"))
-        from PyQt6.QtWidgets import QGridLayout, QPushButton
-        grid = QGridLayout()
-        grid.setSpacing(6)
-        for i, color in enumerate(PRESET_COLORS):
-            btn = QPushButton()
-            btn.setFixedSize(40, 40)
-            btn.setCheckable(True)
-            if color:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {color};
-                        border: 2px solid transparent;
-                        border-radius: 6px;
-                    }}
-                    QPushButton:hover {{
-                        border-color: #999;
-                    }}
-                    QPushButton:checked {{
-                        border-color: #4a9eff;
-                    }}
-                """)
-            else:
-                btn.setText("无")
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: #fafafa;
-                        border: 2px solid transparent;
-                        border-radius: 6px;
-                        color: #666;
-                    }
-                    QPushButton:hover {
-                        border-color: #999;
-                    }
-                    QPushButton:checked {
-                        border-color: #4a9eff;
-                    }
-                """)
-            if color == current_color:
-                btn.setChecked(True)
-            btn.clicked.connect(lambda checked, c=color: self._on_color_selected(c))
-            grid.addWidget(btn, i // 5, i % 5)
-        layout.addLayout(grid)
-        custom_row = QHBoxLayout()
-        custom_btn = QPushButton("自定义颜色...")
-        custom_btn.clicked.connect(self._pick_custom_color)
-        custom_row.addWidget(custom_btn)
-        custom_row.addStretch()
-        layout.addLayout(custom_row)
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(self.accept)
-        btns.rejected.connect(self.reject)
-        layout.addWidget(btns)
-
-    def _on_color_selected(self, color: str):
-        self._selected_color = color
-
-    def _pick_custom_color(self):
-        initial = QColor(self._selected_color) if self._selected_color else QColor()
-        color = QColorDialog.getColor(initial, self, "自定义颜色")
-        if color.isValid():
-            self._selected_color = color.name()
-
-    def get_selected_color(self) -> str:
-        return self._selected_color
+from .widgets import (
+    ShelfTreeView,
+    ShelfIconPickerDialog,
+    ShelfColorPickerDialog,
+)
 
 
 class ShelfPanel(QWidget):
@@ -282,20 +34,25 @@ class ShelfPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
+
         header = QHBoxLayout()
         title = QLabel("📚 书架")
         title.setStyleSheet("font-weight: bold; font-size: 13px; padding: 4px;")
         header.addWidget(title)
         header.addStretch()
+
         self.btn_new = QPushButton("➕")
         self.btn_new.setToolTip("新建书架")
         self.btn_new.setFixedSize(28, 28)
+
         self.btn_rename = QPushButton("✏️")
         self.btn_rename.setToolTip("重命名")
         self.btn_rename.setFixedSize(28, 28)
+
         self.btn_delete = QPushButton("🗑️")
         self.btn_delete.setToolTip("删除书架")
         self.btn_delete.setFixedSize(28, 28)
+
         for btn in [self.btn_new, self.btn_rename, self.btn_delete]:
             btn.setStyleSheet("""
                 QPushButton {
@@ -310,20 +67,29 @@ class ShelfPanel(QWidget):
                 }
             """)
             header.addWidget(btn)
+
         layout.addLayout(header)
+
         self.tree_view = ShelfTreeView()
         self.model = ShelfTreeModel(self._tree, self)
         self.tree_view.setModel(self.model)
         layout.addWidget(self.tree_view, stretch=1)
+
         self.lbl_info = QLabel()
         self.lbl_info.setStyleSheet("color: #666; padding: 4px; font-size: 11px;")
         self.lbl_info.setWordWrap(True)
         layout.addWidget(self.lbl_info)
         self._update_info_label()
+
+    def restore_state(self):
         self.tree_view.restoreExpandedState(self.model)
-        root_idx = self.model.find_index(SHELF_ROOT_ID)
-        if root_idx.isValid():
-            self.tree_view.setCurrentIndex(root_idx)
+        first_child = self._tree.get_children(SHELF_ROOT_ID)
+        if first_child:
+            idx = self.model.find_index(first_child[0].id)
+            if idx.isValid():
+                self.tree_view.setCurrentIndex(idx)
+        self._current_shelf_id = SHELF_ROOT_ID
+        self.shelf_selected.emit(SHELF_ROOT_ID, True)
 
     def _connect_signals(self):
         self.btn_new.clicked.connect(self._on_new_shelf)
@@ -340,6 +106,7 @@ class ShelfPanel(QWidget):
         self.model.shelf_created.connect(self._on_shelf_created)
         self.model.shelf_deleted.connect(self._on_shelf_deleted)
         self.model.shelf_moved.connect(lambda *_: self._update_info_label())
+        self.model.shelf_renamed.connect(self._on_shelf_renamed)
 
     def _update_info_label(self):
         total_shelves = self._tree.get_shelf_count()
@@ -356,14 +123,21 @@ class ShelfPanel(QWidget):
     def _on_shelf_created(self, shelf_id: str):
         idx = self.model.find_index(shelf_id)
         if idx.isValid():
+            self.tree_view.expandTo(shelf_id)
             self.tree_view.scrollTo(idx)
             self.tree_view.setCurrentIndex(idx)
+            self.tree_view.edit(idx)
         self._update_info_label()
 
     def _on_shelf_deleted(self, shelf_id: str, removed_books: dict):
         if self._current_shelf_id == shelf_id:
             self._current_shelf_id = SHELF_ROOT_ID
             self.shelf_selected.emit(SHELF_ROOT_ID, True)
+        self._update_info_label()
+
+    def _on_shelf_renamed(self, shelf_id: str, new_name: str):
+        if self._current_shelf_id == shelf_id:
+            self.shelf_selected.emit(shelf_id, self._tree.get_node(shelf_id).is_virtual)
         self._update_info_label()
 
     def _on_expanded(self, index: QModelIndex):
@@ -421,12 +195,7 @@ class ShelfPanel(QWidget):
         if not node:
             return
         desc_count = len(self._tree.get_descendant_ids(shelf_id))
-        total_books = node.book_count
-        if desc_count > 0:
-            for did in self._tree.get_descendant_ids(shelf_id):
-                dn = self._tree.get_node(did)
-                if dn:
-                    total_books += dn.book_count
+        total_books = self._tree.get_recursive_book_count(shelf_id)
         msg = f"确定删除书架「{node.name}」？"
         if desc_count > 0:
             msg += f"\n包含 {desc_count} 个子书架"
@@ -444,12 +213,12 @@ class ShelfPanel(QWidget):
 
     def _on_context_menu(self, pos: QPoint):
         idx = self.tree_view.indexAt(pos)
-        shelf_id = self.model.get_shelf_id(idx) if idx.isValid() else SHELF_ROOT_ID
+        shelf_id = self.model.get_shelf_id(idx) if idx.isValid() else None
         menu = QMenu(self)
         act_new = QAction("📁 新建子书架", self)
         act_new.triggered.connect(lambda: self._context_new(shelf_id))
         menu.addAction(act_new)
-        if shelf_id != SHELF_ROOT_ID:
+        if shelf_id and shelf_id != SHELF_ROOT_ID:
             menu.addSeparator()
             act_rename = QAction("✏️ 重命名", self)
             act_rename.triggered.connect(lambda: self._context_rename(shelf_id))
@@ -473,10 +242,11 @@ class ShelfPanel(QWidget):
         menu.addAction(act_collapse_all)
         menu.exec(self.tree_view.viewport().mapToGlobal(pos))
 
-    def _context_new(self, parent_id: str):
+    def _context_new(self, parent_id: Optional[str]):
+        pid = parent_id if parent_id else SHELF_ROOT_ID
         name, ok = QInputDialog.getText(self, "新建书架", "书架名称:")
         if ok and name.strip():
-            self.model.create_shelf(name.strip(), parent_id)
+            self.model.create_shelf(name.strip(), pid)
 
     def _context_rename(self, shelf_id: str):
         idx = self.model.find_index(shelf_id)
@@ -488,7 +258,7 @@ class ShelfPanel(QWidget):
         if not node:
             return
         dlg = ShelfIconPickerDialog(node.icon, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if dlg.exec() == dlg.DialogCode.Accepted:
             icon = dlg.get_selected_icon()
             idx = self.model.find_index(shelf_id)
             if idx.isValid():
@@ -499,7 +269,7 @@ class ShelfPanel(QWidget):
         if not node:
             return
         dlg = ShelfColorPickerDialog(node.color, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if dlg.exec() == dlg.DialogCode.Accepted:
             color = dlg.get_selected_color()
             idx = self.model.find_index(shelf_id)
             if idx.isValid():
@@ -524,19 +294,13 @@ class ShelfPanel(QWidget):
     def add_books_to_shelf(self, shelf_id: str, book_ids: List[str]):
         for bid in book_ids:
             self._tree.add_book(shelf_id, bid)
-        self.model.refresh_node(shelf_id)
-        ancestors = self._tree.get_ancestors(shelf_id)
-        for anc in ancestors:
-            self.model.refresh_node(anc.id)
+        self.model._notify_books_changed(None, shelf_id)
         self._update_info_label()
 
     def remove_books_from_shelf(self, shelf_id: str, book_ids: List[str]):
         for bid in book_ids:
             self._tree.remove_book(shelf_id, bid)
-        self.model.refresh_node(shelf_id)
-        ancestors = self._tree.get_ancestors(shelf_id)
-        for anc in ancestors:
-            self.model.refresh_node(anc.id)
+        self.model._notify_books_changed(shelf_id, None)
         self._update_info_label()
 
     def refresh_current(self):

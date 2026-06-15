@@ -145,6 +145,21 @@ class ShelfTreeModel(QAbstractItemModel):
                 return node.is_virtual
         return QVariant()
 
+    def _refresh_subtree(self, shelf_id: str, roles: list):
+        idx = self.find_index(shelf_id)
+        if idx.isValid():
+            self.dataChanged.emit(idx, idx, roles)
+        for child in self._tree.get_children(shelf_id):
+            self._refresh_subtree(child.id, roles)
+
+    def _refresh_ancestors(self, shelf_id: str, roles: list):
+        current = self._tree.get_parent(shelf_id)
+        while current is not None:
+            idx = self.find_index(current.id)
+            if idx.isValid():
+                self.dataChanged.emit(idx, idx, roles)
+            current = self._tree.get_parent(current.id)
+
     def setData(self, index: QModelIndex, value: Any, role: int = Qt.ItemDataRole.EditRole) -> bool:
         if not index.isValid():
             return False
@@ -158,7 +173,11 @@ class ShelfTreeModel(QAbstractItemModel):
             if self._tree.rename_shelf(node.id, new_name):
                 self.data_modified.emit()
                 self.shelf_renamed.emit(node.id, new_name)
-                self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+                self._refresh_subtree(node.id, [
+                    Qt.ItemDataRole.DisplayRole,
+                    Qt.ItemDataRole.EditRole,
+                    Qt.ItemDataRole.ToolTipRole,
+                ])
                 return True
         elif role == self.ROLE_SHELF_ICON:
             if self._tree.set_shelf_icon(node.id, str(value)):
@@ -326,13 +345,20 @@ class ShelfTreeModel(QAbstractItemModel):
         return QModelIndex()
 
     def _notify_books_changed(self, source_id: Optional[str], target_id: str):
-        if source_id:
+        roles = [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole]
+        if source_id and source_id != SHELF_ROOT_ID:
+            self._refresh_ancestors(source_id, roles)
             src_idx = self._index_for_id(source_id)
             if src_idx.isValid():
-                self.dataChanged.emit(src_idx, src_idx, [Qt.ItemDataRole.DisplayRole])
-        tgt_idx = self._index_for_id(target_id)
-        if tgt_idx.isValid():
-            self.dataChanged.emit(tgt_idx, tgt_idx, [Qt.ItemDataRole.DisplayRole])
+                self.dataChanged.emit(src_idx, src_idx, roles)
+        if target_id and target_id != SHELF_ROOT_ID:
+            self._refresh_ancestors(target_id, roles)
+            tgt_idx = self._index_for_id(target_id)
+            if tgt_idx.isValid():
+                self.dataChanged.emit(tgt_idx, tgt_idx, roles)
+        root_idx = self._index_for_id(SHELF_ROOT_ID)
+        if root_idx.isValid():
+            self.dataChanged.emit(root_idx, root_idx, roles)
 
     def create_shelf(self, name: str, parent_id: Optional[str] = None,
                      icon: str = "📁", color: str = "") -> Optional[str]:

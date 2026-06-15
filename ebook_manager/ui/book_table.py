@@ -38,7 +38,7 @@ class DraggableBookTable(QTableWidget):
             return
         book_ids = []
         for row in sorted(rows):
-            item = self.item(row, 1)
+            item = self.item(row, 0)
             if item:
                 bid = item.data(Qt.ItemDataRole.UserRole + 1)
                 if bid:
@@ -53,7 +53,7 @@ class DraggableBookTable(QTableWidget):
             mime.setData("application/x-ebook-source-shelf", src_data)
         drag = QDrag(self)
         drag.setMimeData(mime)
-        action = drag.exec(Qt.DropAction.CopyAction | Qt.DropAction.MoveAction)
+        drag.exec(Qt.DropAction.CopyAction | Qt.DropAction.MoveAction)
         self.books_dragged.emit(book_ids)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -228,6 +228,7 @@ class BookTableWidget(QWidget):
             check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
             check_item.setCheckState(Qt.CheckState.Unchecked)
             check_item.setData(Qt.ItemDataRole.UserRole, row)
+            check_item.setData(Qt.ItemDataRole.UserRole + 1, book.book_id)
             self.table.setItem(row, 0, check_item)
 
             shelf_text = self._get_shelf_text(book)

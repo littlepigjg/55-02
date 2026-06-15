@@ -50,6 +50,10 @@ class MainWindow(QMainWindow):
         self._init_menu()
         self._init_statusbar()
         self._sync_books_to_shelf_tree()
+        QTimer.singleShot(100, self._restore_shelf_state)
+
+    def _restore_shelf_state(self):
+        self.shelf_panel.restore_state()
 
     def _init_ui(self):
         central = QWidget()
