@@ -1,6 +1,15 @@
+import uuid
+import hashlib
 from dataclasses import dataclass, field
 from typing import Optional
 from pathlib import Path
+
+
+def _generate_book_id(file_path: str = "") -> str:
+    if file_path:
+        hash_obj = hashlib.md5(file_path.encode("utf-8"))
+        return f"book_{hash_obj.hexdigest()[:16]}"
+    return f"book_{uuid.uuid4().hex[:16]}"
 
 
 @dataclass
@@ -17,6 +26,12 @@ class BookMeta:
     file_path: str = ""
     file_format: str = ""
     file_size: int = 0
+    book_id: str = ""
+    shelf_ids: list = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.book_id:
+            self.book_id = _generate_book_id(self.file_path)
 
     def to_dict(self):
         return {
@@ -32,11 +47,13 @@ class BookMeta:
             "file_path": self.file_path,
             "file_format": self.file_format,
             "file_size": self.file_size,
+            "book_id": self.book_id,
+            "shelf_ids": self.shelf_ids,
         }
 
     @classmethod
     def from_dict(cls, d: dict):
-        return cls(
+        obj = cls(
             title=d.get("title", ""),
             author=d.get("author", ""),
             publisher=d.get("publisher", ""),
@@ -49,7 +66,12 @@ class BookMeta:
             file_path=d.get("file_path", ""),
             file_format=d.get("file_format", ""),
             file_size=d.get("file_size", 0),
+            book_id=d.get("book_id", ""),
+            shelf_ids=d.get("shelf_ids", []),
         )
+        if not obj.book_id:
+            obj.book_id = _generate_book_id(obj.file_path)
+        return obj
 
     @staticmethod
     def format_size(size_bytes: int) -> str:
@@ -58,3 +80,14 @@ class BookMeta:
                 return f"{size_bytes:.1f} {unit}"
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
+
+    def add_to_shelf(self, shelf_id: str):
+        if shelf_id not in self.shelf_ids:
+            self.shelf_ids.append(shelf_id)
+
+    def remove_from_shelf(self, shelf_id: str):
+        if shelf_id in self.shelf_ids:
+            self.shelf_ids.remove(shelf_id)
+
+    def is_in_shelf(self, shelf_id: str) -> bool:
+        return shelf_id in self.shelf_ids
