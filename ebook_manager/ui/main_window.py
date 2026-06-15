@@ -252,21 +252,26 @@ class MainWindow(QMainWindow):
         self.book_table.refresh_all()
 
     def _on_books_dropped_from_shelf(self, book_ids: list, target_shelf_id: str, copy: bool):
-        self._handle_book_move(book_ids, target_shelf_id, copy)
+        self._handle_book_move(book_ids, target_shelf_id, copy, None)
 
     def _on_books_moved_to_shelf(self, book_ids: list, target_shelf_id: str, copy: bool):
-        self._handle_book_move(book_ids, target_shelf_id, copy)
+        source_id = self.shelf_panel.get_current_shelf_id()
+        self._handle_book_move(book_ids, target_shelf_id, copy, source_id)
 
     def _on_books_removed_from_shelf(self, book_ids: list, source_shelf_id: str):
         for bid in book_ids:
             book = self._get_book_by_id(bid)
             if book:
                 book.remove_from_shelf(source_shelf_id)
+                self._shelf_tree.remove_book(source_shelf_id, bid)
+        self.shelf_panel.model.notify_books_changed(source_id=source_shelf_id)
         self.book_table.refresh_all()
         self._shelf_storage.mark_dirty()
 
-    def _handle_book_move(self, book_ids: list, target_shelf_id: str, copy: bool):
+    def _handle_book_move(self, book_ids: list, target_shelf_id: str, copy: bool,
+                          source_hint: Optional[str] = None):
         real_target = target_shelf_id if target_shelf_id != "root" else None
+        affected_sources: set = set()
         count = 0
         for bid in book_ids:
             book = self._get_book_by_id(bid)
@@ -277,23 +282,25 @@ class MainWindow(QMainWindow):
                     book.add_to_shelf(real_target)
                     self._shelf_tree.add_book(real_target, bid)
                 else:
-                    if not book.shelf_ids:
-                        book.add_to_shelf(real_target)
-                        self._shelf_tree.add_book(real_target, bid)
-                    else:
-                        old_shelves = list(book.shelf_ids)
-                        for sid in old_shelves:
-                            book.remove_from_shelf(sid)
-                            self._shelf_tree.remove_book(sid, bid)
-                        book.add_to_shelf(real_target)
-                        self._shelf_tree.add_book(real_target, bid)
-            else:
-                if not copy:
-                    for sid in list(book.shelf_ids):
+                    old_shelves = list(book.shelf_ids)
+                    for sid in old_shelves:
                         book.remove_from_shelf(sid)
                         self._shelf_tree.remove_book(sid, bid)
+                        affected_sources.add(sid)
+                    book.add_to_shelf(real_target)
+                    self._shelf_tree.add_book(real_target, bid)
+            else:
+                if not copy:
+                    old_shelves = list(book.shelf_ids)
+                    for sid in old_shelves:
+                        book.remove_from_shelf(sid)
+                        self._shelf_tree.remove_book(sid, bid)
+                        affected_sources.add(sid)
             count += 1
-        self.shelf_panel.refresh_current()
+        self.shelf_panel.model.notify_books_changed(
+            source_id=next(iter(affected_sources)) if affected_sources else source_hint,
+            target_id=real_target
+        )
         self.book_table.refresh_all()
         self._shelf_storage.mark_dirty()
         if real_target:

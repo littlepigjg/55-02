@@ -279,7 +279,6 @@ class ShelfTreeModel(QAbstractItemModel):
             if data.hasFormat("application/x-ebook-source-shelf"):
                 source_id = bytes(data.data("application/x-ebook-source-shelf")).decode("utf-8")
             self.books_dropped.emit(book_ids, target_id, copy)
-            self._notify_books_changed(source_id, target_id)
             return True
         return False
 
@@ -344,7 +343,8 @@ class ShelfTreeModel(QAbstractItemModel):
                 return self.createIndex(row, 0, node)
         return QModelIndex()
 
-    def _notify_books_changed(self, source_id: Optional[str], target_id: str):
+    def notify_books_changed(self, source_id: Optional[str] = None,
+                             target_id: Optional[str] = None):
         roles = [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole]
         if source_id and source_id != SHELF_ROOT_ID:
             self._refresh_ancestors(source_id, roles)

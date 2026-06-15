@@ -294,13 +294,13 @@ class ShelfPanel(QWidget):
     def add_books_to_shelf(self, shelf_id: str, book_ids: List[str]):
         for bid in book_ids:
             self._tree.add_book(shelf_id, bid)
-        self.model._notify_books_changed(None, shelf_id)
+        self.model.notify_books_changed(target_id=shelf_id)
         self._update_info_label()
 
     def remove_books_from_shelf(self, shelf_id: str, book_ids: List[str]):
         for bid in book_ids:
             self._tree.remove_book(shelf_id, bid)
-        self.model._notify_books_changed(shelf_id, None)
+        self.model.notify_books_changed(source_id=shelf_id)
         self._update_info_label()
 
     def refresh_current(self):
