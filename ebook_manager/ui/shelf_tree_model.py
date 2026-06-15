@@ -145,12 +145,15 @@ class ShelfTreeModel(QAbstractItemModel):
                 return node.is_virtual
         return QVariant()
 
-    def _refresh_subtree(self, shelf_id: str, roles: list):
+    def _refresh_subtree_recursive(self, shelf_id: str, roles: list):
         idx = self.find_index(shelf_id)
         if idx.isValid():
             self.dataChanged.emit(idx, idx, roles)
         for child in self._tree.get_children(shelf_id):
-            self._refresh_subtree(child.id, roles)
+            self._refresh_subtree_recursive(child.id, roles)
+
+    def _refresh_subtree(self, shelf_id: str, roles: list):
+        self._refresh_subtree_recursive(shelf_id, roles)
 
     def _refresh_ancestors(self, shelf_id: str, roles: list):
         current = self._tree.get_parent(shelf_id)
@@ -346,19 +349,21 @@ class ShelfTreeModel(QAbstractItemModel):
     def notify_books_changed(self, source_id: Optional[str] = None,
                              target_id: Optional[str] = None):
         roles = [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole]
+        self.layoutAboutToBeChanged.emit()
+        self.layoutChanged.emit()
+        self.dataChanged.emit(
+            self.index(0, 0),
+            self.index(max(0, self.rowCount() - 1), 0),
+            roles
+        )
         if source_id and source_id != SHELF_ROOT_ID:
+            self._refresh_subtree_recursive(source_id, roles)
             self._refresh_ancestors(source_id, roles)
-            src_idx = self._index_for_id(source_id)
-            if src_idx.isValid():
-                self.dataChanged.emit(src_idx, src_idx, roles)
         if target_id and target_id != SHELF_ROOT_ID:
+            self._refresh_subtree_recursive(target_id, roles)
             self._refresh_ancestors(target_id, roles)
-            tgt_idx = self._index_for_id(target_id)
-            if tgt_idx.isValid():
-                self.dataChanged.emit(tgt_idx, tgt_idx, roles)
-        root_idx = self._index_for_id(SHELF_ROOT_ID)
-        if root_idx.isValid():
-            self.dataChanged.emit(root_idx, root_idx, roles)
+        if SHELF_ROOT_ID in self._tree._nodes:
+            self._refresh_subtree_recursive(SHELF_ROOT_ID, roles)
 
     def create_shelf(self, name: str, parent_id: Optional[str] = None,
                      icon: str = "📁", color: str = "") -> Optional[str]:

@@ -392,8 +392,6 @@ class BookTableWidget(QWidget):
     def _remove_from_current_shelf(self, books: list):
         if not self._current_shelf_id or self._current_shelf_id == "root":
             return
-        for book in books:
-            book.remove_from_shelf(self._current_shelf_id)
-            if self._shelf_tree:
-                self._shelf_tree.remove_book(self._current_shelf_id, book.book_id)
+        book_ids = [b.book_id for b in books]
+        self.move_books_to_shelf.emit(book_ids, self._current_shelf_id)
         self.refresh_all()
